@@ -1,38 +1,37 @@
-import './style.css'
-import * as THREE from "three"
-import { ARButton } from "three/addons/webxr/ARButton.js"
+import "./style.css";
+import * as THREE from "three";
+import { ARButton } from "three/addons/webxr/ARButton.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 let camera, scene, renderer;
-let hiroMarkerMesh, earthNFTMesh;
+let hiroAnchor, earthAnchor;
+let lastSeen = 0;
+let menu, menuTitle, menuDesc;
+
+function waitForImage(imgEl) {
+  if (imgEl.complete && imgEl.naturalWidth > 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    imgEl.addEventListener("load", resolve, { once: true });
+    imgEl.addEventListener("error", () => reject(new Error("Erro carregando imagem: " + imgEl.src)), { once: true });
+  });
+}
 
 init();
 
 async function init() {
   scene = new THREE.Scene();
 
-  camera = new THREE.PerspectiveCamera(
-    70,
-    window.innerWidth / window.innerHeight,
-    0.01,
-    20
-  );
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-  renderer = new THREE.WebGLRenderer({
-    antialias: true,
-    alpha: true
-  });
-
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.xr.enabled = true;
   renderer.setAnimationLoop(render);
 
-  // 🔥 evita erro se container não existir
-  const container = document.querySelector("#scene-container") || document.body;
-  container.appendChild(renderer.domElement);
+  (document.querySelector("#scene-container") || document.body).appendChild(renderer.domElement);
 
-  // luz
   const ambient = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
   ambient.position.set(0.5, 1, 0.25);
   scene.add(ambient);
@@ -40,96 +39,107 @@ async function init() {
   // imagens para tracking
   const imgMarkerHiro = document.getElementById("imgMarkerHiro");
   const imgNFTEarth = document.getElementById("imgNFTEarth");
-
   if (!imgMarkerHiro || !imgNFTEarth) {
     console.error("Imagens não encontradas no HTML!");
     return;
   }
 
+  await Promise.all([waitForImage(imgMarkerHiro), waitForImage(imgNFTEarth)]);
+
   const imgMarkerHiroBitmap = await createImageBitmap(imgMarkerHiro);
   const imgNFTEarthBitmap = await createImageBitmap(imgNFTEarth);
 
-  // botão AR
   const button = ARButton.createButton(renderer, {
     requiredFeatures: ["image-tracking"],
     trackedImages: [
-      {
-        image: imgMarkerHiroBitmap,
-        widthInMeters: 0.2,
-      },
-      {
-        image: imgNFTEarthBitmap,
-        widthInMeters: 0.2,
-      },
+      { image: imgMarkerHiroBitmap, widthInMeters: 0.2 },
+      { image: imgNFTEarthBitmap, widthInMeters: 0.2 },
     ],
     optionalFeatures: ["dom-overlay"],
-    domOverlay: {
-      root: document.body
-    },
+    domOverlay: { root: document.body },
   });
-
   document.body.appendChild(button);
 
-  // 🔵 cubo 1 (hiro)
-  const hiroGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-  const hiroMaterial = new THREE.MeshNormalMaterial({
-    transparent: true,
-    opacity: 0.5,
-  });
+  // anchors (recebem a matriz do tracking)
+  hiroAnchor = new THREE.Group();
+  hiroAnchor.matrixAutoUpdate = false;
+  hiroAnchor.visible = false;
+  scene.add(hiroAnchor);
 
-  hiroMarkerMesh = new THREE.Mesh(hiroGeometry, hiroMaterial);
-  hiroMarkerMesh.matrixAutoUpdate = false;
-  hiroMarkerMesh.visible = false;
-  scene.add(hiroMarkerMesh);
+  earthAnchor = new THREE.Group();
+  earthAnchor.matrixAutoUpdate = false;
+  earthAnchor.visible = false;
+  scene.add(earthAnchor);
 
-  // 🔴 cubo 2 (earth)
-  const earthGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-  const earthMaterial = new THREE.MeshNormalMaterial();
+  // carregar modelo para o target 0
+  const loader = new GLTFLoader();
+  loader.load(
+    "/models/beer_bottle/scene.gltf", // confirme que abre no navegador
+    (gltf) => {
+      const garrafa = gltf.scene;
 
-  earthNFTMesh = new THREE.Mesh(earthGeometry, earthMaterial);
-  earthNFTMesh.matrixAutoUpdate = false;
-  earthNFTMesh.visible = false;
-  scene.add(earthNFTMesh);
+      // Agora sim: escala/rotação/offset funcionam, porque o modelo está dentro do anchor
+      garrafa.scale.setScalar(0.004);     // comece pequeno; ajuste: 0.01~0.1
+       // teste remover se ficar estranho
+      garrafa.position.y = 0.02;         // sobe um pouco acima do marcador
+
+      hiroAnchor.add(garrafa);
+      console.log("Garrafa pronta no hiroAnchor");
+    },
+    undefined,
+    (err) => console.error("Erro ao carregar modelo:", err)
+  );
+
+  // menu
+  menu = document.getElementById("menu");
+  menuTitle = document.getElementById("menu-title");
+  menuDesc = document.getElementById("menu-desc");
 }
 
 function render(timestamp, frame) {
   if (frame) {
     const results = frame.getImageTrackingResults();
 
-    for (const result of results) {
+    // por padrão esconde; vai mostrar quando tracked
+    hiroAnchor.visible = false;
+    earthAnchor.visible = false;
 
-      const imageIndex = result.index;
+    for (const result of results) {
       const referenceSpace = renderer.xr.getReferenceSpace();
       const pose = frame.getPose(result.imageSpace, referenceSpace);
-
       if (!pose) continue;
 
-      const state = result.trackingState;
+      if (result.trackingState === "tracked") {
+        lastSeen = Date.now();
 
-      if (state === "tracked") {
+        if (result.index === 0) {
+          hiroAnchor.visible = true;
+          hiroAnchor.matrix.fromArray(pose.transform.matrix);
 
-        if (imageIndex === 0) {
-          hiroMarkerMesh.visible = true;
-          hiroMarkerMesh.matrix.fromArray(pose.transform.matrix);
+          if (menuTitle) menuTitle.innerText = "Garrafa";
+          if (menuDesc) menuDesc.innerText = "Produto garrafa";
         }
 
-        if (imageIndex === 1) {
-          earthNFTMesh.visible = true;
-          earthNFTMesh.matrix.fromArray(pose.transform.matrix);
-        }
+        if (result.index === 1) {
+          earthAnchor.visible = true;
+          earthAnchor.matrix.fromArray(pose.transform.matrix);
 
-      } else {
-        // opcional: esconder quando perder tracking
-        if (imageIndex === 0) hiroMarkerMesh.visible = false;
-        if (imageIndex === 1) earthNFTMesh.visible = false;
+          if (menuTitle) menuTitle.innerText = "Frango";
+          if (menuDesc) menuDesc.innerText = "Delicioso frango 🍗";
+        }
       }
     }
+  }
+
+  // menu anti-flicker
+  if (menu) {
+    if (Date.now() - lastSeen < 500) menu.classList.remove("hidden");
+    else menu.classList.add("hidden");
   }
 
   renderer.render(scene, camera);
 }
 
-// resize
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
