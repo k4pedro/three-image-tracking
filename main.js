@@ -4,8 +4,9 @@ import { ARButton } from "three/addons/webxr/ARButton.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 let camera, scene, renderer;
-let hiroAnchor, earthAnchor;
+let hiroAnchor;
 let lastSeen = 0;
+
 let menu, menuTitle, menuDesc;
 
 function waitForImage(imgEl) {
@@ -16,13 +17,44 @@ function waitForImage(imgEl) {
   });
 }
 
+let models = [];
+let activeIndex = 0;
+
+const items = [
+  {
+    url: "/models/beer_bottle/scene.gltf",
+    title: "Beer",
+    desc: "Garrafa Beer",
+    scale: 0.004,
+    position: { x: 0, y: 0.02, z: 0 },
+  },
+  {
+    url: "/models/heineken_bottle/scene.gltf",
+    title: "Heineken",
+    desc: "Garrafa Heineken",
+    scale: 0.05, 
+    position: { x: 0, y: 0.02, z:0 },
+  },
+];
+
+function setActiveModel(index) {
+  if (models.length === 0) return;
+
+  activeIndex = (index + models.length) % models.length;
+
+  for (let i = 0; i < models.length; i++) {
+    models[i].visible = (i === activeIndex);
+  }
+
+  if (menuTitle) menuTitle.innerText = items[activeIndex]?.title ?? `Modelo ${activeIndex + 1}`;
+  if (menuDesc) menuDesc.innerText = items[activeIndex]?.desc ?? `Mostrando ${activeIndex + 1}/${models.length}`;
+}
+
 init();
 
 async function init() {
   scene = new THREE.Scene();
-
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -32,106 +64,80 @@ async function init() {
 
   (document.querySelector("#scene-container") || document.body).appendChild(renderer.domElement);
 
-  const ambient = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-  ambient.position.set(0.5, 1, 0.25);
-  scene.add(ambient);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
 
-  // imagens para tracking
   const imgMarkerHiro = document.getElementById("imgMarkerHiro");
-  const imgNFTEarth = document.getElementById("imgNFTEarth");
-  if (!imgMarkerHiro || !imgNFTEarth) {
-    console.error("Imagens não encontradas no HTML!");
+  if (!imgMarkerHiro) {
+    console.error("Imagem target não encontrada (#imgMarkerHiro)");
     return;
   }
 
-  await Promise.all([waitForImage(imgMarkerHiro), waitForImage(imgNFTEarth)]);
-
+  await waitForImage(imgMarkerHiro);
   const imgMarkerHiroBitmap = await createImageBitmap(imgMarkerHiro);
-  const imgNFTEarthBitmap = await createImageBitmap(imgNFTEarth);
 
   const button = ARButton.createButton(renderer, {
     requiredFeatures: ["image-tracking"],
-    trackedImages: [
-      { image: imgMarkerHiroBitmap, widthInMeters: 0.2 },
-      { image: imgNFTEarthBitmap, widthInMeters: 0.2 },
-    ],
+    trackedImages: [{ image: imgMarkerHiroBitmap, widthInMeters: 0.2 }],
     optionalFeatures: ["dom-overlay"],
     domOverlay: { root: document.body },
   });
   document.body.appendChild(button);
 
-  // anchors (recebem a matriz do tracking)
+  // anchor do cavalo
   hiroAnchor = new THREE.Group();
   hiroAnchor.matrixAutoUpdate = false;
   hiroAnchor.visible = false;
   scene.add(hiroAnchor);
 
-  earthAnchor = new THREE.Group();
-  earthAnchor.matrixAutoUpdate = false;
-  earthAnchor.visible = false;
-  scene.add(earthAnchor);
 
-  // carregar modelo para o target 0
-  const loader = new GLTFLoader();
-  loader.load(
-    "/models/beer_bottle/scene.gltf", // confirme que abre no navegador
-    (gltf) => {
-      const garrafa = gltf.scene;
-
-      // Agora sim: escala/rotação/offset funcionam, porque o modelo está dentro do anchor
-      garrafa.scale.setScalar(0.004);     // comece pequeno; ajuste: 0.01~0.1
-       // teste remover se ficar estranho
-      garrafa.position.y = 0.02;         // sobe um pouco acima do marcador
-
-      hiroAnchor.add(garrafa);
-      console.log("Garrafa pronta no hiroAnchor");
-    },
-    undefined,
-    (err) => console.error("Erro ao carregar modelo:", err)
-  );
-
-  // menu
   menu = document.getElementById("menu");
   menuTitle = document.getElementById("menu-title");
   menuDesc = document.getElementById("menu-desc");
+
+  document.getElementById("prev")?.addEventListener("click", () => setActiveModel(activeIndex - 1));
+  document.getElementById("next")?.addEventListener("click", () => setActiveModel(activeIndex + 1));
+
+  const loader = new GLTFLoader();
+
+  for (const item of items) {
+    const gltf = await loader.loadAsync(item.url);
+    const obj = gltf.scene;
+    obj.scale.setScalar(item.scale ?? 1);
+    if (item.rotation) {
+      obj.rotation.set(item.rotation.x ?? 0, item.rotation.y ?? 0, item.rotation.z ?? 0);
+    }
+    if (item.position) {
+      obj.position.set(item.position.x ?? 0, item.position.y ?? 0, item.position.z ?? 0);
+    }
+    obj.visible = false;
+    hiroAnchor.add(obj);
+    models.push(obj);
+  }
+
+  setActiveModel(0);
+
+
 }
 
 function render(timestamp, frame) {
   if (frame) {
     const results = frame.getImageTrackingResults();
 
-    // por padrão esconde; vai mostrar quando tracked
     hiroAnchor.visible = false;
-    earthAnchor.visible = false;
 
     for (const result of results) {
       const referenceSpace = renderer.xr.getReferenceSpace();
       const pose = frame.getPose(result.imageSpace, referenceSpace);
       if (!pose) continue;
 
-      if (result.trackingState === "tracked") {
+      if (result.index === 0 && result.trackingState === "tracked") {
         lastSeen = Date.now();
-
-        if (result.index === 0) {
-          hiroAnchor.visible = true;
-          hiroAnchor.matrix.fromArray(pose.transform.matrix);
-
-          if (menuTitle) menuTitle.innerText = "Garrafa";
-          if (menuDesc) menuDesc.innerText = "Produto garrafa";
-        }
-
-        if (result.index === 1) {
-          earthAnchor.visible = true;
-          earthAnchor.matrix.fromArray(pose.transform.matrix);
-
-          if (menuTitle) menuTitle.innerText = "Frango";
-          if (menuDesc) menuDesc.innerText = "Delicioso frango 🍗";
-        }
+        hiroAnchor.visible = true;
+        hiroAnchor.matrix.fromArray(pose.transform.matrix);
       }
     }
   }
 
-  // menu anti-flicker
   if (menu) {
     if (Date.now() - lastSeen < 500) menu.classList.remove("hidden");
     else menu.classList.add("hidden");
