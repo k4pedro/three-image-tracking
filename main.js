@@ -35,6 +35,13 @@ const items = [
     scale: 0.05, 
     position: { x: 0, y: 0.02, z:0 },
   },
+  {
+    url: "/models/duff_teste/duff_teste.glb",
+    title: "Duff Beer",
+    desc: "Garrafa Duff",
+    scale: 0.05, 
+    position: { x: 0, y: 0.02, z:0 },
+  },
 ];
 
 function setActiveModel(index) {
