@@ -7,42 +7,40 @@ let camera, scene, renderer;
 let hiroAnchor;
 let lastSeen = 0;
 
-let menu, menuTitle, menuDesc;
+let menu, menuTitle, menuDesc, navAR;
+
+let models = [];
+let activeIndex = 0;
+let modelsLoaded = false;
+
+const items = [
+  {
+    url: "/models/duff_semMolde/duff_semMolde.glb",
+    title: "Duff Beer",
+    desc: "Garrafa Duff",
+    scale: 0.05,
+    position: { x: 0, y: 0.02, z: 0 },
+  },
+  {
+    url: "/models/duff_expo/duff_expo.glb",
+    title: "Duff Beer",
+    desc: "Garrafa Duff",
+    scale: 0.05,
+    position: { x: 0, y: 0.02, z: 0 },
+  },
+];
 
 function waitForImage(imgEl) {
   if (imgEl.complete && imgEl.naturalWidth > 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
     imgEl.addEventListener("load", resolve, { once: true });
-    imgEl.addEventListener("error", () => reject(new Error("Erro carregando imagem: " + imgEl.src)), { once: true });
+    imgEl.addEventListener(
+      "error",
+      () => reject(new Error("Erro carregando imagem: " + imgEl.src)),
+      { once: true }
+    );
   });
 }
-
-let models = [];
-let activeIndex = 0;
-
-const items = [
-  {
-    url: "/models/beer_bottle/scene.gltf",
-    title: "Beer",
-    desc: "Garrafa Beer",
-    scale: 0.004,
-    position: { x: 0, y: 0.02, z: 0 },
-  },
-  {
-    url: "/models/heineken_bottle/scene.gltf",
-    title: "Heineken",
-    desc: "Garrafa Heineken",
-    scale: 0.05, 
-    position: { x: 0, y: 0.02, z:0 },
-  },
-  {
-    url: "/models/duff_teste/duff_teste.glb",
-    title: "Duff Beer",
-    desc: "Garrafa Duff",
-    scale: 0.05, 
-    position: { x: 0, y: 0.02, z:0 },
-  },
-];
 
 function setActiveModel(index) {
   if (models.length === 0) return;
@@ -50,16 +48,69 @@ function setActiveModel(index) {
   activeIndex = (index + models.length) % models.length;
 
   for (let i = 0; i < models.length; i++) {
-    models[i].visible = (i === activeIndex);
+    models[i].visible = i === activeIndex;
   }
 
   if (menuTitle) menuTitle.innerText = items[activeIndex]?.title ?? `Modelo ${activeIndex + 1}`;
   if (menuDesc) menuDesc.innerText = items[activeIndex]?.desc ?? `Mostrando ${activeIndex + 1}/${models.length}`;
 }
 
+function setupDomRefs() {
+  menu = document.getElementById("menu");
+  menuTitle = document.getElementById("menu-title");
+  menuDesc = document.getElementById("menu-desc");
+  navAR = document.getElementById("nav-ar");
+}
+
+function setupUiEvents() {
+  document.getElementById("prev")?.addEventListener("click", () => setActiveModel(activeIndex - 1));
+  document.getElementById("next")?.addEventListener("click", () => setActiveModel(activeIndex + 1));
+}
+
+function hideARUI() {
+  navAR?.classList.add("hidden");
+  menu?.classList.add("hidden");
+}
+
+function showARUI() {
+  // As setas podem aparecer assim que iniciar a sessão AR
+  navAR?.classList.remove("hidden");
+  // O menu continua aparecendo só quando detectar o marker (controlado pelo lastSeen no render)
+}
+
+async function loadModelsOnce() {
+  if (modelsLoaded) return;
+  modelsLoaded = true;
+
+  const loader = new GLTFLoader();
+
+  for (const item of items) {
+    const gltf = await loader.loadAsync(item.url);
+    const obj = gltf.scene;
+
+    obj.scale.setScalar(item.scale ?? 1);
+
+    if (item.rotation) {
+      obj.rotation.set(item.rotation.x ?? 0, item.rotation.y ?? 0, item.rotation.z ?? 0);
+    }
+    if (item.position) {
+      obj.position.set(item.position.x ?? 0, item.position.y ?? 0, item.position.z ?? 0);
+    }
+
+    obj.visible = false;
+    hiroAnchor.add(obj);
+    models.push(obj);
+  }
+
+  setActiveModel(0);
+}
+
 init();
 
 async function init() {
+  setupDomRefs();
+  setupUiEvents();
+  hideARUI();
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -72,6 +123,10 @@ async function init() {
   (document.querySelector("#scene-container") || document.body).appendChild(renderer.domElement);
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
+  hiroAnchor = new THREE.Group();
+  hiroAnchor.matrixAutoUpdate = false;
+  hiroAnchor.visible = false;
+  scene.add(hiroAnchor);
 
   const imgMarkerHiro = document.getElementById("imgMarkerHiro");
   if (!imgMarkerHiro) {
@@ -90,40 +145,20 @@ async function init() {
   });
   document.body.appendChild(button);
 
-  // anchor do cavalo
-  hiroAnchor = new THREE.Group();
-  hiroAnchor.matrixAutoUpdate = false;
-  hiroAnchor.visible = false;
-  scene.add(hiroAnchor);
+  // Só depois de apertar "Start AR"
+  renderer.xr.addEventListener("sessionstart", async () => {
+    lastSeen = 0;
+    hiroAnchor.visible = false;
 
+    showARUI();
+    await loadModelsOnce();
+  });
 
-  menu = document.getElementById("menu");
-  menuTitle = document.getElementById("menu-title");
-  menuDesc = document.getElementById("menu-desc");
-
-  document.getElementById("prev")?.addEventListener("click", () => setActiveModel(activeIndex - 1));
-  document.getElementById("next")?.addEventListener("click", () => setActiveModel(activeIndex + 1));
-
-  const loader = new GLTFLoader();
-
-  for (const item of items) {
-    const gltf = await loader.loadAsync(item.url);
-    const obj = gltf.scene;
-    obj.scale.setScalar(item.scale ?? 1);
-    if (item.rotation) {
-      obj.rotation.set(item.rotation.x ?? 0, item.rotation.y ?? 0, item.rotation.z ?? 0);
-    }
-    if (item.position) {
-      obj.position.set(item.position.x ?? 0, item.position.y ?? 0, item.position.z ?? 0);
-    }
-    obj.visible = false;
-    hiroAnchor.add(obj);
-    models.push(obj);
-  }
-
-  setActiveModel(0);
-
-
+  renderer.xr.addEventListener("sessionend", () => {
+    lastSeen = 0;
+    hiroAnchor.visible = false;
+    hideARUI();
+  });
 }
 
 function render(timestamp, frame) {
