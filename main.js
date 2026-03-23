@@ -8,10 +8,11 @@ let hiroAnchor;
 let lastSeen = 0;
 
 let menu, menuTitle, menuDesc, navAR;
-
 let models = [];
 let activeIndex = 0;
 let modelsLoaded = false;
+
+let wasTrackedRecently = false;
 
 const items = [
   {
@@ -25,6 +26,13 @@ const items = [
     url: "/models/duff_expo/duff_expo.glb",
     title: "Duff Beer",
     desc: "Garrafa Duff",
+    scale: 0.05,
+    position: { x: 0, y: 0.02, z: 0 },
+  },
+  {
+    url: "/models/hnk_bottle/hnk_semMolde.glb",
+    title: "Heineken",
+    desc: "Garrafa Heineken",
     scale: 0.05,
     position: { x: 0, y: 0.02, z: 0 },
   },
@@ -42,6 +50,43 @@ function waitForImage(imgEl) {
   });
 }
 
+// --- Fade no Three.js (material.opacity) ---
+function setOpacityRecursive(root, opacity) {
+  root.traverse((child) => {
+    if (!child.isMesh) return;
+
+    // importante: se vários meshes compartilham material, clona pra não afetar outros
+    if (Array.isArray(child.material)) {
+      child.material = child.material.map((m) => (m ? m.clone() : m));
+    } else if (child.material) {
+      child.material = child.material.clone();
+    }
+
+    const mats = Array.isArray(child.material) ? child.material : [child.material];
+    for (const m of mats) {
+      if (!m) continue;
+      m.transparent = true;
+      m.opacity = opacity;
+      m.depthWrite = opacity >= 1; // ajuda a evitar artefatos quando transparente
+      m.needsUpdate = true;
+    }
+  });
+}
+
+function fadeInObject(root, durationMs = 450) {
+  const start = performance.now();
+  setOpacityRecursive(root, 0);
+
+  function step(now) {
+    const t = Math.min(1, (now - start) / durationMs);
+    setOpacityRecursive(root, t);
+    if (t < 1) requestAnimationFrame(step);
+  }
+
+  requestAnimationFrame(step);
+}
+// -----------------------------------------
+
 function setActiveModel(index) {
   if (models.length === 0) return;
 
@@ -53,6 +98,13 @@ function setActiveModel(index) {
 
   if (menuTitle) menuTitle.innerText = items[activeIndex]?.title ?? `Modelo ${activeIndex + 1}`;
   if (menuDesc) menuDesc.innerText = items[activeIndex]?.desc ?? `Mostrando ${activeIndex + 1}/${models.length}`;
+
+  // se o marker estiver visível, dá fade no modelo recém-ativado
+  const trackedRecently = Date.now() - lastSeen < 500;
+  if (trackedRecently) {
+    const obj = models[activeIndex];
+    if (obj) fadeInObject(obj, 350);
+  }
 }
 
 function setupDomRefs() {
@@ -73,15 +125,13 @@ function hideARUI() {
 }
 
 function showARUI() {
-  // As setas podem aparecer assim que iniciar a sessão AR
   navAR?.classList.remove("hidden");
-  // O menu continua aparecendo só quando detectar o marker (controlado pelo lastSeen no render)
 }
 
 async function loadModelsOnce() {
   if (modelsLoaded) return;
   modelsLoaded = true;
-
+  
   const loader = new GLTFLoader();
 
   for (const item of items) {
@@ -111,8 +161,10 @@ async function init() {
   setupDomRefs();
   setupUiEvents();
   hideARUI();
+
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -123,6 +175,7 @@ async function init() {
   (document.querySelector("#scene-container") || document.body).appendChild(renderer.domElement);
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
+
   hiroAnchor = new THREE.Group();
   hiroAnchor.matrixAutoUpdate = false;
   hiroAnchor.visible = false;
@@ -145,9 +198,9 @@ async function init() {
   });
   document.body.appendChild(button);
 
-  // Só depois de apertar "Start AR"
   renderer.xr.addEventListener("sessionstart", async () => {
     lastSeen = 0;
+    wasTrackedRecently = false;
     hiroAnchor.visible = false;
 
     showARUI();
@@ -156,6 +209,7 @@ async function init() {
 
   renderer.xr.addEventListener("sessionend", () => {
     lastSeen = 0;
+    wasTrackedRecently = false;
     hiroAnchor.visible = false;
     hideARUI();
   });
@@ -164,7 +218,6 @@ async function init() {
 function render(timestamp, frame) {
   if (frame) {
     const results = frame.getImageTrackingResults();
-
     hiroAnchor.visible = false;
 
     for (const result of results) {
@@ -180,10 +233,16 @@ function render(timestamp, frame) {
     }
   }
 
-  if (menu) {
-    if (Date.now() - lastSeen < 500) menu.classList.remove("hidden");
-    else menu.classList.add("hidden");
+  // UI
+  const trackedRecently = Date.now() - lastSeen < 500;
+  if (menu) menu.classList.toggle("hidden", !trackedRecently);
+
+  // disparar fade quando o marker "aparecer"
+  if (trackedRecently && !wasTrackedRecently) {
+    const obj = models[activeIndex];
+    if (obj) fadeInObject(obj, 450);
   }
+  wasTrackedRecently = trackedRecently;
 
   renderer.render(scene, camera);
 }
