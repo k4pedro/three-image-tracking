@@ -32,21 +32,21 @@ const items = [
     url: "/models/assets_hnk/garrafa_hnk/garrafa_hnk.glb",
     title: "Garrafa",
     desc: "Garrafa Heineken",
-    scale: 0.05,
+    scale: 0.03,
     position: { x: 0, y: 0.02, z: 0 },
   },
   {
     url: "/models/assets_hnk/taca_hnk/taca_hnk.glb",
     title: "Taça",
     desc: "Taça Heineken",
-    scale: 0.05,
+    scale: 0.03,
     position: { x: 0, y: 0.02, z: 0 },
   },
   {
     url: "/models/assets_hnk/lata_hnk/lata_hnk.glb",
     title: "Lata",
     desc: "Lata Heineken",
-    scale: 0.05,
+    scale: 0.03,
     position: { x: 0, y: 0.02, z: 0 },
   },
 ];
@@ -207,8 +207,8 @@ async function setupLighting() {
   const hemi = new THREE.HemisphereLight(0xffffff, 0xbfd3ff, 0.45);
   scene.add(hemi);
 
-  const sun = new THREE.DirectionalLight(0xffffff, 15);
-  sun.position.set(2.0, 3.0, 2.0); 
+  const sun = new THREE.DirectionalLight(0xffffff, 12);
+  sun.position.set(4, 12 , 9); 
   scene.add(sun);
 
   // Um fill leve para não esmagar as sombras
