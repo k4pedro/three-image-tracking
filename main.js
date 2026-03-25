@@ -338,6 +338,7 @@ async function init() {
 function render(timestamp, frame) {
   if (frame) {
     const results = frame.getImageTrackingResults();
+
     hiroAnchor.visible = false;
 
     for (const result of results) {
@@ -345,9 +346,7 @@ function render(timestamp, frame) {
       const pose = frame.getPose(result.imageSpace, referenceSpace);
       if (!pose) continue;
 
-      const isTracking = result.trackingState === "tracked" || result.trackingState === "emulated";
-
-      if (result.index === 0 && isTracking) {
+      if (result.index === 0 && result.trackingState === "tracked") {
         lastSeen = Date.now();
         hiroAnchor.visible = true;
         hiroAnchor.matrix.fromArray(pose.transform.matrix);
@@ -355,16 +354,10 @@ function render(timestamp, frame) {
     }
   }
 
-  // UI visível só quando marker foi visto recentemente
-  const trackedRecently = Date.now() - lastSeen < 500;
-  if (menu) menu.classList.toggle("hidden", !trackedRecently);
-
-  // fade quando o marker reaparece
-  if (trackedRecently && !wasTrackedRecently) {
-    const obj = models[activeIndex];
-    if (obj) fadeInObject(obj, 450);
+   if (menu) {
+    if (Date.now() - lastSeen < 500) menu.classList.remove("hidden");
+    else menu.classList.add("hidden");
   }
-  wasTrackedRecently = trackedRecently;
 
   renderer.render(scene, camera);
 }
