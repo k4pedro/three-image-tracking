@@ -1,43 +1,59 @@
+// ===============================
+// 1) Imports
+// ===============================
 import "./style.css";
 import * as THREE from "three";
 import { ARButton } from "three/addons/webxr/ARButton.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+// ===============================
+// 2) Estado global (Three + app)
+// ===============================
 let camera, scene, renderer;
 let hiroAnchor;
-let lastSeen = 0;
 
+// tracking state
+let lastSeen = 0;
+let wasTrackedRecently = false;
+
+// UI state
 let menu, menuTitle, menuDesc, navAR;
+
+// models state
 let models = [];
 let activeIndex = 0;
 let modelsLoaded = false;
 
-let wasTrackedRecently = false;
-
+// ===============================
+// 3) Configuração (lista de modelos)
+// ===============================
 const items = [
   {
-    url: "/models/duff_semMolde/duff_semMolde.glb",
-    title: "Duff Beer",
-    desc: "Garrafa Duff",
-    scale: 0.05,
-    position: { x: 0, y: 0.02, z: 0 },
-  },
-  {
-    url: "/models/duff_expo/duff_expo.glb",
-    title: "Duff Beer",
-    desc: "Garrafa Duff",
-    scale: 0.05,
-    position: { x: 0, y: 0.02, z: 0 },
-  },
-  {
-    url: "/models/hnk_bottle/hnk_semMolde.glb",
-    title: "Heineken",
+    url: "/models/assets_hnk/garrafa_hnk/garrafa_hnk.glb",
+    title: "Garrafa",
     desc: "Garrafa Heineken",
+    scale: 0.05,
+    position: { x: 0, y: 0.02, z: 0 },
+  },
+  {
+    url: "/models/assets_hnk/taca_hnk/taca_hnk.glb",
+    title: "Taça",
+    desc: "Taça Heineken",
+    scale: 0.05,
+    position: { x: 0, y: 0.02, z: 0 },
+  },
+  {
+    url: "/models/assets_hnk/lata_hnk/lata_hnk.glb",
+    title: "Lata",
+    desc: "Lata Heineken",
     scale: 0.05,
     position: { x: 0, y: 0.02, z: 0 },
   },
 ];
 
+// ===============================
+// 4) Utils (helpers)
+// ===============================
 function waitForImage(imgEl) {
   if (imgEl.complete && imgEl.naturalWidth > 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -50,12 +66,14 @@ function waitForImage(imgEl) {
   });
 }
 
-// --- Fade no Three.js (material.opacity) ---
+// ===============================
+// 5) Efeitos visuais (fade)
+// ===============================
 function setOpacityRecursive(root, opacity) {
   root.traverse((child) => {
     if (!child.isMesh) return;
 
-    // importante: se vários meshes compartilham material, clona pra não afetar outros
+    // clonar materiais para não afetar meshes que compartilham material
     if (Array.isArray(child.material)) {
       child.material = child.material.map((m) => (m ? m.clone() : m));
     } else if (child.material) {
@@ -67,7 +85,7 @@ function setOpacityRecursive(root, opacity) {
       if (!m) continue;
       m.transparent = true;
       m.opacity = opacity;
-      m.depthWrite = opacity >= 1; // ajuda a evitar artefatos quando transparente
+      m.depthWrite = opacity >= 1;
       m.needsUpdate = true;
     }
   });
@@ -85,28 +103,10 @@ function fadeInObject(root, durationMs = 450) {
 
   requestAnimationFrame(step);
 }
-// -----------------------------------------
 
-function setActiveModel(index) {
-  if (models.length === 0) return;
-
-  activeIndex = (index + models.length) % models.length;
-
-  for (let i = 0; i < models.length; i++) {
-    models[i].visible = i === activeIndex;
-  }
-
-  if (menuTitle) menuTitle.innerText = items[activeIndex]?.title ?? `Modelo ${activeIndex + 1}`;
-  if (menuDesc) menuDesc.innerText = items[activeIndex]?.desc ?? `Mostrando ${activeIndex + 1}/${models.length}`;
-
-  // se o marker estiver visível, dá fade no modelo recém-ativado
-  const trackedRecently = Date.now() - lastSeen < 500;
-  if (trackedRecently) {
-    const obj = models[activeIndex];
-    if (obj) fadeInObject(obj, 350);
-  }
-}
-
+// ===============================
+// 6) UI (DOM + eventos)
+// ===============================
 function setupDomRefs() {
   menu = document.getElementById("menu");
   menuTitle = document.getElementById("menu-title");
@@ -115,8 +115,12 @@ function setupDomRefs() {
 }
 
 function setupUiEvents() {
-  document.getElementById("prev")?.addEventListener("click", () => setActiveModel(activeIndex - 1));
-  document.getElementById("next")?.addEventListener("click", () => setActiveModel(activeIndex + 1));
+  document
+    .getElementById("prev")
+    ?.addEventListener("click", () => setActiveModel(activeIndex - 1));
+  document
+    .getElementById("next")
+    ?.addEventListener("click", () => setActiveModel(activeIndex + 1));
 }
 
 function hideARUI() {
@@ -128,10 +132,36 @@ function showARUI() {
   navAR?.classList.remove("hidden");
 }
 
+// ===============================
+// 7) Modelos (carregar + trocar)
+// ===============================
+function setActiveModel(index) {
+  if (models.length === 0) return;
+
+  activeIndex = (index + models.length) % models.length;
+
+  for (let i = 0; i < models.length; i++) {
+    models[i].visible = i === activeIndex;
+  }
+
+  if (menuTitle)
+    menuTitle.innerText = items[activeIndex]?.title ?? `Modelo ${activeIndex + 1}`;
+  if (menuDesc)
+    menuDesc.innerText =
+      items[activeIndex]?.desc ?? `Mostrando ${activeIndex + 1}/${models.length}`;
+
+  // se o marker estiver visível, dá fade no modelo recém-ativado
+  const trackedRecently = Date.now() - lastSeen < 500;
+  if (trackedRecently) {
+    const obj = models[activeIndex];
+    if (obj) fadeInObject(obj, 350);
+  }
+}
+
 async function loadModelsOnce() {
   if (modelsLoaded) return;
   modelsLoaded = true;
-  
+
   const loader = new GLTFLoader();
 
   for (const item of items) {
@@ -141,10 +171,18 @@ async function loadModelsOnce() {
     obj.scale.setScalar(item.scale ?? 1);
 
     if (item.rotation) {
-      obj.rotation.set(item.rotation.x ?? 0, item.rotation.y ?? 0, item.rotation.z ?? 0);
+      obj.rotation.set(
+        item.rotation.x ?? 0,
+        item.rotation.y ?? 0,
+        item.rotation.z ?? 0
+      );
     }
     if (item.position) {
-      obj.position.set(item.position.x ?? 0, item.position.y ?? 0, item.position.z ?? 0);
+      obj.position.set(
+        item.position.x ?? 0,
+        item.position.y ?? 0,
+        item.position.z ?? 0
+      );
     }
 
     obj.visible = false;
@@ -155,6 +193,69 @@ async function loadModelsOnce() {
   setActiveModel(0);
 }
 
+// ===============================
+// 8) Setup Three + WebXR (init)
+// ===============================
+
+// Lights 
+async function setupLighting() {
+  // 1) Tone mapping / exposure (muito importante com HDRI)
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.85; // baixa um pouco para evitar estouro
+
+  // Luz “de céu/chão” 
+  const hemi = new THREE.HemisphereLight(0xffffff, 0xbfd3ff, 0.45);
+  scene.add(hemi);
+
+  const sun = new THREE.DirectionalLight(0xffffff, 15);
+  sun.position.set(2.0, 3.0, 2.0); 
+  scene.add(sun);
+
+  // Um fill leve para não esmagar as sombras
+  const amb = new THREE.AmbientLight(0xffffff, 0.08);
+  scene.add(amb);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.25);
+  fill.position.set(-2.0, 1.5, -1.5); 
+  scene.add(fill);
+
+  // 3) Environment (IBL) — principal para vidro/metais
+  // Coloque um HDRI em: public/hdr/studio_small_08_1k.hdr (exemplo)
+  const hdrUrl = "/hdr/studio_small_08_1k.hdr";
+
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+
+  await new Promise((resolve) => {
+    new RGBELoader().load(
+      hdrUrl,
+      (hdrEquirect) => {
+        const envMap = pmrem.fromEquirectangular(hdrEquirect).texture;
+
+        scene.environment = envMap;
+        // Em AR, normalmente NÃO usar background:
+        // scene.background = envMap;
+
+        hdrEquirect.dispose();
+        pmrem.dispose();
+
+        // Se sua versão do Three suportar, isso controla a força do HDRI:
+        // (nem todas têm)
+        if ("environmentIntensity" in scene) {
+          scene.environmentIntensity = 0.7; // 0.4–1.0
+        }
+
+        resolve();
+      },
+      undefined,
+      () => {
+        console.warn("Falha ao carregar HDRI:", hdrUrl);
+        pmrem.dispose();
+        resolve(); // não quebra a app
+      }
+    );
+  });
+}
+
 init();
 
 async function init() {
@@ -163,24 +264,37 @@ async function init() {
   hideARUI();
 
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+  camera = new THREE.PerspectiveCamera(
+    70,
+    window.innerWidth / window.innerHeight,
+    0.01,
+    20
+  );
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+
   renderer.xr.enabled = true;
   renderer.setAnimationLoop(render);
 
-  (document.querySelector("#scene-container") || document.body).appendChild(renderer.domElement);
+  (document.querySelector("#scene-container") || document.body).appendChild(
+    renderer.domElement
+  );
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
+  // Luz (por enquanto)
 
+  await setupLighting();
+
+  // Anchor (onde os modelos ficam)
   hiroAnchor = new THREE.Group();
   hiroAnchor.matrixAutoUpdate = false;
   hiroAnchor.visible = false;
   scene.add(hiroAnchor);
 
+  // Marker image
   const imgMarkerHiro = document.getElementById("imgMarkerHiro");
   if (!imgMarkerHiro) {
     console.error("Imagem target não encontrada (#imgMarkerHiro)");
@@ -190,6 +304,7 @@ async function init() {
   await waitForImage(imgMarkerHiro);
   const imgMarkerHiroBitmap = await createImageBitmap(imgMarkerHiro);
 
+  // AR Button / session
   const button = ARButton.createButton(renderer, {
     requiredFeatures: ["image-tracking"],
     trackedImages: [{ image: imgMarkerHiroBitmap, widthInMeters: 0.2 }],
@@ -198,6 +313,7 @@ async function init() {
   });
   document.body.appendChild(button);
 
+  // XR session lifecycle
   renderer.xr.addEventListener("sessionstart", async () => {
     lastSeen = 0;
     wasTrackedRecently = false;
@@ -211,10 +327,14 @@ async function init() {
     lastSeen = 0;
     wasTrackedRecently = false;
     hiroAnchor.visible = false;
+
     hideARUI();
   });
 }
 
+// ===============================
+// 9) Render loop (tracking + UI + draw)
+// ===============================
 function render(timestamp, frame) {
   if (frame) {
     const results = frame.getImageTrackingResults();
@@ -225,7 +345,9 @@ function render(timestamp, frame) {
       const pose = frame.getPose(result.imageSpace, referenceSpace);
       if (!pose) continue;
 
-      if (result.index === 0 && result.trackingState === "tracked") {
+      const isTracking = result.trackingState === "tracked" || result.trackingState === "emulated";
+
+      if (result.index === 0 && isTracking) {
         lastSeen = Date.now();
         hiroAnchor.visible = true;
         hiroAnchor.matrix.fromArray(pose.transform.matrix);
@@ -233,11 +355,11 @@ function render(timestamp, frame) {
     }
   }
 
-  // UI
+  // UI visível só quando marker foi visto recentemente
   const trackedRecently = Date.now() - lastSeen < 500;
   if (menu) menu.classList.toggle("hidden", !trackedRecently);
 
-  // disparar fade quando o marker "aparecer"
+  // fade quando o marker reaparece
   if (trackedRecently && !wasTrackedRecently) {
     const obj = models[activeIndex];
     if (obj) fadeInObject(obj, 450);
@@ -247,6 +369,9 @@ function render(timestamp, frame) {
   renderer.render(scene, camera);
 }
 
+// ===============================
+// 10) Eventos globais (resize)
+// ===============================
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
