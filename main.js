@@ -1,33 +1,15 @@
-// ===============================
-// 1) Imports
-// ===============================
 import "./style.css";
 import * as THREE from "three";
-import { ARButton } from "three/addons/webxr/ARButton.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
 
-// ===============================
-// 2) Estado global (Three + app)
-// ===============================
-let camera, scene, renderer;
-let hiroAnchor;
+import { createNavAR } from "/src/ui/navAR.js";
+import { fadeInObject } from "/src/three/fade.js";
 
-// tracking state
-let lastSeen = 0;
-let wasTrackedRecently = false;
+import { createLight } from "/src/three/light.js";
+import { loadModelsOnce } from "/src/three/loadModels.js";
 
-// UI state
-let menu, menuTitle, menuDesc, navAR;
+import { createImageAnchorTracker } from "/src/ar/trackingImageAnchor.js";
+import { createARSessionButton } from "/src/ar/createARSessionButton.js";
 
-// models state
-let models = [];
-let activeIndex = 0;
-let modelsLoaded = false;
-
-// ===============================
-// 3) Configuração (lista de modelos)
-// ===============================
 const items = [
   {
     url: "/models/assets_hnk/garrafa_hnk/garrafa_hnk.glb",
@@ -52,11 +34,10 @@ const items = [
   },
 ];
 
-// ===============================
-// 4) Utils (helpers)
-// ===============================
 function waitForImage(imgEl) {
+  if (!imgEl) throw new Error("waitForImage: imgEl is required");
   if (imgEl.complete && imgEl.naturalWidth > 0) return Promise.resolve();
+
   return new Promise((resolve, reject) => {
     imgEl.addEventListener("load", resolve, { once: true });
     imgEl.addEventListener(
@@ -67,229 +48,37 @@ function waitForImage(imgEl) {
   });
 }
 
-// ===============================
-// 5) Efeitos visuais (fade)
-// ===============================
-function setOpacityRecursive(root, opacity) {
-  root.traverse((child) => {
-    if (!child.isMesh) return;
+let camera, scene, renderer;
+let hiroAnchor;
 
-    if (Array.isArray(child.material)) {
-      child.material = child.material.map((m) => (m ? m.clone() : m));
-    } else if (child.material) {
-      child.material = child.material.clone();
-    }
+let nav;
+let tracker;
+let lighting;
+let arButton;
 
-    const mats = Array.isArray(child.material) ? child.material : [child.material];
-    for (const m of mats) {
-      if (!m) continue;
-      m.transparent = true;
-      m.opacity = opacity;
-      m.depthWrite = opacity >= 1;
-      m.needsUpdate = true;
-    }
-  });
-}
+let wasTrackedRecently = false;
 
-function fadeInObject(root, durationMs = 450) {
-  const start = performance.now();
-  setOpacityRecursive(root, 0);
+let models = [];
+let activeIndex = 0;
+let modelsLoaded = false;
 
-  function step(now) {
-    const t = Math.min(1, (now - start) / durationMs);
-    setOpacityRecursive(root, t);
-    if (t < 1) requestAnimationFrame(step);
-  }
+function setActiveModel(nextIndex) {
+  if (!models.length) return;
 
-  requestAnimationFrame(step);
-}
-
-// ===============================
-// 6) UI (DOM + eventos)
-// ===============================
-
-function createNavAR() {
-  const nav = document.createElement("div");
-  nav.id = "nav-ar";
-
-  // Mantive seu layout Tailwind (sem hidden/pointer-events-none)
-  nav.className =
-    "fixed inset-0 z-50 flex items-center justify-between px-4";
-
-  // começa escondido (sem gambiarra de class)
-  nav.hidden = true;
-
-  nav.innerHTML = `
-    <button id="prev" type="button"
-      class="pointer-events-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition hover:bg-black/60 active:scale-95">
-      <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none"
-        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="m15 18-6-6 6-6" />
-      </svg>
-    </button>
-
-    <button id="next" type="button"
-      class="pointer-events-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition hover:bg-black/60 active:scale-95">
-      <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none"
-        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="m9 18 6-6-6-6" />
-      </svg>
-    </button>
-  `;
-
-  document.body.appendChild(nav);
-  return nav;
-}
-
-function setupDomRefs() {
-  menu = document.getElementById("menu");
-  menuTitle = document.getElementById("menu-title");
-  menuDesc = document.getElementById("menu-desc");
-
-  // navAR agora é criado por JS (não depende mais do HTML)
-  navAR = createNavAR();
-}
-
-function setupUiEvents() {
-  document
-    .getElementById("prev")
-    ?.addEventListener("click", () => setActiveModel(activeIndex - 1));
-  document
-    .getElementById("next")
-    ?.addEventListener("click", () => setActiveModel(activeIndex + 1));
-}
-
-function hideARUI() {
-  if (navAR) navAR.hidden = true;
-
-  // se quiser parar de usar class "hidden" no menu também:
-  if (menu) menu.hidden = true;
-}
-
-function showARUI() {
-  if (navAR) navAR.hidden = false;
-  // menu continua controlado pelo tracking no render()
-}
-
-// ===============================
-// 7) Modelos (carregar + trocar)
-// ===============================
-function setActiveModel(index) {
-  if (models.length === 0) return;
-
-  activeIndex = (index + models.length) % models.length;
+  activeIndex = (nextIndex + models.length) % models.length;
 
   for (let i = 0; i < models.length; i++) {
     models[i].visible = i === activeIndex;
   }
 
-  if (menuTitle)
-    menuTitle.innerText = items[activeIndex]?.title ?? `Modelo ${activeIndex + 1}`;
-  if (menuDesc)
-    menuDesc.innerText =
-      items[activeIndex]?.desc ?? `Mostrando ${activeIndex + 1}/${models.length}`;
-
-  const trackedRecently = Date.now() - lastSeen < 500;
-  if (trackedRecently) {
+  // Fade ao trocar de modelo (igual ao antigo)
+  if (tracker?.isRecentlyTracked(500)) {
     const obj = models[activeIndex];
     if (obj) fadeInObject(obj, 350);
   }
 }
 
-async function loadModelsOnce() {
-  if (modelsLoaded) return;
-  modelsLoaded = true;
-
-  const loader = new GLTFLoader();
-
-  for (const item of items) {
-    const gltf = await loader.loadAsync(item.url);
-    const obj = gltf.scene;
-
-    obj.scale.setScalar(item.scale ?? 1);
-
-    if (item.rotation) {
-      obj.rotation.set(
-        item.rotation.x ?? 0,
-        item.rotation.y ?? 0,
-        item.rotation.z ?? 0
-      );
-    }
-    if (item.position) {
-      obj.position.set(
-        item.position.x ?? 0,
-        item.position.y ?? 0,
-        item.position.z ?? 0
-      );
-    }
-
-    obj.visible = false;
-    hiroAnchor.add(obj);
-    models.push(obj);
-  }
-
-  setActiveModel(0);
-}
-
-// ===============================
-// 8) Setup Three + WebXR (init)
-// ===============================
-async function setupLighting() {
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.85;
-
-  const hemi = new THREE.HemisphereLight(0xffffff, 0xbfd3ff, 0.45);
-  scene.add(hemi);
-
-  const sun = new THREE.DirectionalLight(0xffffff, 12);
-  sun.position.set(4, 12, 9);
-  scene.add(sun);
-
-  const amb = new THREE.AmbientLight(0xffffff, 0.08);
-  scene.add(amb);
-
-  const fill = new THREE.DirectionalLight(0xffffff, 0.25);
-  fill.position.set(-2.0, 1.5, -1.5);
-  scene.add(fill);
-
-  const hdrUrl = "/hdr/studio_small_08_1k.hdr";
-
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  pmrem.compileEquirectangularShader();
-
-  await new Promise((resolve) => {
-    new RGBELoader().load(
-      hdrUrl,
-      (hdrEquirect) => {
-        const envMap = pmrem.fromEquirectangular(hdrEquirect).texture;
-        scene.environment = envMap;
-
-        hdrEquirect.dispose();
-        pmrem.dispose();
-
-        if ("environmentIntensity" in scene) {
-          scene.environmentIntensity = 0.7;
-        }
-
-        resolve();
-      },
-      undefined,
-      () => {
-        console.warn("Falha ao carregar HDRI:", hdrUrl);
-        pmrem.dispose();
-        resolve();
-      }
-    );
-  });
-}
-
-init();
-
 async function init() {
-  setupDomRefs();
-  setupUiEvents();
-  hideARUI();
-
   scene = new THREE.Scene();
 
   camera = new THREE.PerspectiveCamera(
@@ -303,20 +92,38 @@ async function init() {
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-
   renderer.xr.enabled = true;
-  renderer.setAnimationLoop(render);
 
   (document.querySelector("#scene-container") || document.body).appendChild(
     renderer.domElement
   );
 
-  await setupLighting();
+  lighting = createLight({
+    scene,
+    renderer,
+    hdriUrl: "/hdr/studio_small_08_1k.hdr",
+    exposure: 0.85,
+    environmentIntensity: 0.7,
+  });
+  await lighting.init();
 
   hiroAnchor = new THREE.Group();
   hiroAnchor.matrixAutoUpdate = false;
   hiroAnchor.visible = false;
   scene.add(hiroAnchor);
+
+  nav = createNavAR({
+    onPrev: () => setActiveModel(activeIndex - 1),
+    onNext: () => setActiveModel(activeIndex + 1),
+  });
+  nav.hide();
+
+
+  tracker = createImageAnchorTracker({
+    renderer,
+    anchor: hiroAnchor,
+    imageIndex: 0,
+  });
 
   const imgMarkerHiro = document.getElementById("imgMarkerHiro");
   if (!imgMarkerHiro) {
@@ -327,67 +134,66 @@ async function init() {
   await waitForImage(imgMarkerHiro);
   const imgMarkerHiroBitmap = await createImageBitmap(imgMarkerHiro);
 
-  const button = ARButton.createButton(renderer, {
-    requiredFeatures: ["image-tracking"],
-    trackedImages: [{ image: imgMarkerHiroBitmap, widthInMeters: 0.2 }],
-    optionalFeatures: ["dom-overlay"],
-    domOverlay: { root: document.body },
+  arButton = createARSessionButton({
+    renderer,
+    trackedImageBitmap: imgMarkerHiroBitmap,
+    widthInMeters: 0.2,
+    root: document.body,
+    domOverlayRoot: document.body,
   });
-  document.body.appendChild(button);
 
   renderer.xr.addEventListener("sessionstart", async () => {
-    lastSeen = 0;
+    tracker.reset();
     wasTrackedRecently = false;
-    hiroAnchor.visible = false;
+    nav.show();
 
-    showARUI();
-    await loadModelsOnce();
+    if (!modelsLoaded) {
+      modelsLoaded = true;
+      models = await loadModelsOnce({ items, parent: hiroAnchor });
+      setActiveModel(0);
+    }
   });
 
   renderer.xr.addEventListener("sessionend", () => {
-    lastSeen = 0;
+    tracker.reset();
     wasTrackedRecently = false;
-    hiroAnchor.visible = false;
-
-    hideARUI();
+    nav.hide();
   });
+
+  renderer.setAnimationLoop(render);
+  window.addEventListener("resize", onResize);
+  if (!modelsLoaded) {
+    modelsLoaded = true;
+    models = await loadModelsOnce({ items, parent: hiroAnchor });
+    setActiveModel(0);
+  }
 }
 
-// ===============================
-// 9) Render loop (tracking + UI + draw)
-// ===============================
 function render(timestamp, frame) {
-  if (frame) {
-    const results = frame.getImageTrackingResults();
 
-    hiroAnchor.visible = false;
-
-    for (const result of results) {
-      const referenceSpace = renderer.xr.getReferenceSpace();
-      const pose = frame.getPose(result.imageSpace, referenceSpace);
-      if (!pose) continue;
-
-      if (result.index === 0 && result.trackingState === "tracked") {
-        lastSeen = Date.now();
-        hiroAnchor.visible = true;
-        hiroAnchor.matrix.fromArray(pose.transform.matrix);
-      }
-    }
+  if (!models.length) {
+    renderer.render(scene, camera);
+    return;
   }
 
-  // sem classList hidden: usa propriedade nativa
-  if (menu) {
-    menu.hidden = !(Date.now() - lastSeen < 500);
+  tracker.update(frame);
+
+  const trackedRecently = tracker.isRecentlyTracked(500);
+
+  // Fade quando o marker reaparece (igual ao antigo)
+  if (trackedRecently && !wasTrackedRecently) {
+    const obj = models[activeIndex];
+    if (obj) fadeInObject(obj, 450);
   }
+  wasTrackedRecently = trackedRecently;
 
   renderer.render(scene, camera);
 }
 
-// ===============================
-// 10) Eventos globais (resize)
-// ===============================
-window.addEventListener("resize", () => {
+function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-});
+}
+
+init();
