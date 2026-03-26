@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { ARButton } from "three/addons/webxr/ARButton.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+
 // ===============================
 // 2) Estado global (Three + app)
 // ===============================
@@ -73,7 +74,6 @@ function setOpacityRecursive(root, opacity) {
   root.traverse((child) => {
     if (!child.isMesh) return;
 
-    // clonar materiais para não afetar meshes que compartilham material
     if (Array.isArray(child.material)) {
       child.material = child.material.map((m) => (m ? m.clone() : m));
     } else if (child.material) {
@@ -107,11 +107,47 @@ function fadeInObject(root, durationMs = 450) {
 // ===============================
 // 6) UI (DOM + eventos)
 // ===============================
+
+function createNavAR() {
+  const nav = document.createElement("div");
+  nav.id = "nav-ar";
+
+  // Mantive seu layout Tailwind (sem hidden/pointer-events-none)
+  nav.className =
+    "fixed inset-0 z-50 flex items-center justify-between px-4";
+
+  // começa escondido (sem gambiarra de class)
+  nav.hidden = true;
+
+  nav.innerHTML = `
+    <button id="prev" type="button"
+      class="pointer-events-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition hover:bg-black/60 active:scale-95">
+      <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m15 18-6-6 6-6" />
+      </svg>
+    </button>
+
+    <button id="next" type="button"
+      class="pointer-events-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition hover:bg-black/60 active:scale-95">
+      <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m9 18 6-6-6-6" />
+      </svg>
+    </button>
+  `;
+
+  document.body.appendChild(nav);
+  return nav;
+}
+
 function setupDomRefs() {
   menu = document.getElementById("menu");
   menuTitle = document.getElementById("menu-title");
   menuDesc = document.getElementById("menu-desc");
-  navAR = document.getElementById("nav-ar");
+
+  // navAR agora é criado por JS (não depende mais do HTML)
+  navAR = createNavAR();
 }
 
 function setupUiEvents() {
@@ -124,12 +160,15 @@ function setupUiEvents() {
 }
 
 function hideARUI() {
-  navAR?.classList.add("hidden");
-  menu?.classList.add("hidden");
+  if (navAR) navAR.hidden = true;
+
+  // se quiser parar de usar class "hidden" no menu também:
+  if (menu) menu.hidden = true;
 }
 
 function showARUI() {
-  navAR?.classList.remove("hidden");
+  if (navAR) navAR.hidden = false;
+  // menu continua controlado pelo tracking no render()
 }
 
 // ===============================
@@ -150,7 +189,6 @@ function setActiveModel(index) {
     menuDesc.innerText =
       items[activeIndex]?.desc ?? `Mostrando ${activeIndex + 1}/${models.length}`;
 
-  // se o marker estiver visível, dá fade no modelo recém-ativado
   const trackedRecently = Date.now() - lastSeen < 500;
   if (trackedRecently) {
     const obj = models[activeIndex];
@@ -196,30 +234,24 @@ async function loadModelsOnce() {
 // ===============================
 // 8) Setup Three + WebXR (init)
 // ===============================
-
-// Lights 
 async function setupLighting() {
-  // 1) Tone mapping / exposure (muito importante com HDRI)
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.85; // baixa um pouco para evitar estouro
+  renderer.toneMappingExposure = 0.85;
 
-  // Luz “de céu/chão” 
   const hemi = new THREE.HemisphereLight(0xffffff, 0xbfd3ff, 0.45);
   scene.add(hemi);
 
   const sun = new THREE.DirectionalLight(0xffffff, 12);
-  sun.position.set(4, 12 , 9); 
+  sun.position.set(4, 12, 9);
   scene.add(sun);
 
-  // Um fill leve para não esmagar as sombras
   const amb = new THREE.AmbientLight(0xffffff, 0.08);
   scene.add(amb);
+
   const fill = new THREE.DirectionalLight(0xffffff, 0.25);
-  fill.position.set(-2.0, 1.5, -1.5); 
+  fill.position.set(-2.0, 1.5, -1.5);
   scene.add(fill);
 
-  // 3) Environment (IBL) — principal para vidro/metais
-  // Coloque um HDRI em: public/hdr/studio_small_08_1k.hdr (exemplo)
   const hdrUrl = "/hdr/studio_small_08_1k.hdr";
 
   const pmrem = new THREE.PMREMGenerator(renderer);
@@ -230,18 +262,13 @@ async function setupLighting() {
       hdrUrl,
       (hdrEquirect) => {
         const envMap = pmrem.fromEquirectangular(hdrEquirect).texture;
-
         scene.environment = envMap;
-        // Em AR, normalmente NÃO usar background:
-        // scene.background = envMap;
 
         hdrEquirect.dispose();
         pmrem.dispose();
 
-        // Se sua versão do Three suportar, isso controla a força do HDRI:
-        // (nem todas têm)
         if ("environmentIntensity" in scene) {
-          scene.environmentIntensity = 0.7; // 0.4–1.0
+          scene.environmentIntensity = 0.7;
         }
 
         resolve();
@@ -250,7 +277,7 @@ async function setupLighting() {
       () => {
         console.warn("Falha ao carregar HDRI:", hdrUrl);
         pmrem.dispose();
-        resolve(); // não quebra a app
+        resolve();
       }
     );
   });
@@ -284,17 +311,13 @@ async function init() {
     renderer.domElement
   );
 
-  // Luz (por enquanto)
-
   await setupLighting();
 
-  // Anchor (onde os modelos ficam)
   hiroAnchor = new THREE.Group();
   hiroAnchor.matrixAutoUpdate = false;
   hiroAnchor.visible = false;
   scene.add(hiroAnchor);
 
-  // Marker image
   const imgMarkerHiro = document.getElementById("imgMarkerHiro");
   if (!imgMarkerHiro) {
     console.error("Imagem target não encontrada (#imgMarkerHiro)");
@@ -304,7 +327,6 @@ async function init() {
   await waitForImage(imgMarkerHiro);
   const imgMarkerHiroBitmap = await createImageBitmap(imgMarkerHiro);
 
-  // AR Button / session
   const button = ARButton.createButton(renderer, {
     requiredFeatures: ["image-tracking"],
     trackedImages: [{ image: imgMarkerHiroBitmap, widthInMeters: 0.2 }],
@@ -313,7 +335,6 @@ async function init() {
   });
   document.body.appendChild(button);
 
-  // XR session lifecycle
   renderer.xr.addEventListener("sessionstart", async () => {
     lastSeen = 0;
     wasTrackedRecently = false;
@@ -354,9 +375,9 @@ function render(timestamp, frame) {
     }
   }
 
-   if (menu) {
-    if (Date.now() - lastSeen < 500) menu.classList.remove("hidden");
-    else menu.classList.add("hidden");
+  // sem classList hidden: usa propriedade nativa
+  if (menu) {
+    menu.hidden = !(Date.now() - lastSeen < 500);
   }
 
   renderer.render(scene, camera);
