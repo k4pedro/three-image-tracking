@@ -4,11 +4,11 @@ export function createImageAnchorTracker({ renderer, anchor, imageIndex = 0 }) {
   function okState(state) {
     // tracked: melhor
     // emulated: ajuda a não sumir e “pegar” mais rápido em alguns aparelhos
-    return state === "tracked" || state === "emulated";
+    return state === "tracked" ;
   }
 
   return {
-    update(frame, { graceMs = 1000 } = {}) {
+    update(frame, { graceMs = 5 } = {}) {
       if (!frame) return;
 
       const results = frame.getImageTrackingResults();
