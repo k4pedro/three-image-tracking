@@ -19,6 +19,20 @@ const items = [
     position: { x: 0, y: 0.02, z: 0 },
   },
   {
+    url: "/models/assets_hnk/hnk_bottle_label/hnk_bottle_label_curve_text.glb",
+    title: "Garrafa",
+    desc: "Garrafa Heineken",
+    scale: 0.03,
+    position: { x: 0, y: 0.02, z: 0 },
+  },
+  {
+    url: "/models/assets_hnk/hnk_bottle_label_zero/hnk_bottle_label_zero.glb",
+    title: "Garrafa",
+    desc: "Garrafa Heineken",
+    scale: 0.03,
+    position: { x: 0, y: 0.02, z: 0 },
+  },
+  {
     url: "/models/assets_hnk/taca_hnk/taca_hnk.glb",
     title: "Taça",
     desc: "Taça Heineken",
@@ -58,9 +72,15 @@ let arButton;
 
 let wasTrackedRecently = false;
 
-let models = [];
+let entries = [];          // [{ root, animations, url }]
+let models = [];           // [Object3D]
+let mixers = [];           // [AnimationMixer|null]
+let actions = [];          // [AnimationAction|null]
+
 let activeIndex = 0;
 let modelsLoaded = false;
+
+const clock = new THREE.Clock();
 
 function setActiveModel(nextIndex) {
   if (!models.length) return;
@@ -71,11 +91,57 @@ function setActiveModel(nextIndex) {
     models[i].visible = i === activeIndex;
   }
 
-  // Fade ao trocar de modelo (igual ao antigo)
+  // opcional: tocar só a animação do modelo ativo
+  for (let i = 0; i < actions.length; i++) {
+    const a = actions[i];
+    if (!a) continue;
+    if (i === activeIndex) a.reset().play();
+    else a.stop();
+  }
+
   if (tracker?.isRecentlyTracked(500)) {
     const obj = models[activeIndex];
     if (obj) fadeInObject(obj, 350);
   }
+}
+
+function setupAnimations() {
+  mixers = [];
+  actions = [];
+
+  for (let i = 0; i < entries.length; i++) {
+    const { root, animations } = entries[i];
+
+    if (!animations || animations.length === 0) {
+      mixers[i] = null;
+      actions[i] = null;
+      continue;
+    }
+
+    const mixer = new THREE.AnimationMixer(root);
+    mixers[i] = mixer;
+
+    // Toca o primeiro clip.
+    // (Se você tiver nome no Blender, dá pra selecionar pelo name.)
+    const clip = animations[0];
+    const action = mixer.clipAction(clip);
+
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.play();
+
+    actions[i] = action;
+  }
+}
+
+async function ensureModelsLoaded() {
+  if (modelsLoaded) return;
+  modelsLoaded = true;
+
+  entries = await loadModelsOnce({ items, parent: hiroAnchor });
+  models = entries.map((e) => e.root);
+
+  setupAnimations();
+  setActiveModel(0);
 }
 
 async function init() {
@@ -118,7 +184,6 @@ async function init() {
   });
   nav.hide();
 
-
   tracker = createImageAnchorTracker({
     renderer,
     anchor: hiroAnchor,
@@ -146,30 +211,29 @@ async function init() {
     tracker.reset();
     wasTrackedRecently = false;
     nav.show();
-
-    if (!modelsLoaded) {
-      modelsLoaded = true;
-      models = await loadModelsOnce({ items, parent: hiroAnchor });
-      setActiveModel(0);
-    }
+    await ensureModelsLoaded();
   });
 
   renderer.xr.addEventListener("sessionend", () => {
     tracker.reset();
     wasTrackedRecently = false;
     nav.hide();
+    // opcional: parar animação quando sair
+    for (const a of actions) a?.stop();
   });
 
   renderer.setAnimationLoop(render);
   window.addEventListener("resize", onResize);
-  if (!modelsLoaded) {
-    modelsLoaded = true;
-    models = await loadModelsOnce({ items, parent: hiroAnchor });
-    setActiveModel(0);
-  }
+
+  // pré-carrega (igual ao seu)
+  await ensureModelsLoaded();
 }
 
 function render(timestamp, frame) {
+  const dt = clock.getDelta();
+
+  // Atualiza animações (ou só mixers[activeIndex] se preferir)
+  for (const mixer of mixers) mixer?.update(dt);
 
   if (!models.length) {
     renderer.render(scene, camera);
@@ -180,7 +244,6 @@ function render(timestamp, frame) {
 
   const trackedRecently = tracker.isRecentlyTracked(500);
 
-  // Fade quando o marker reaparece (igual ao antigo)
   if (trackedRecently && !wasTrackedRecently) {
     const obj = models[activeIndex];
     if (obj) fadeInObject(obj, 450);

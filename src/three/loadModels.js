@@ -2,33 +2,38 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export async function loadModelsOnce({ items, parent }) {
   const loader = new GLTFLoader();
-  const models = [];
+  const entries = [];
 
   for (const item of items) {
     const gltf = await loader.loadAsync(item.url);
-    const obj = gltf.scene;
+    const root = gltf.scene;
 
-    obj.scale.setScalar(item.scale ?? 1);
+    root.scale.setScalar(item.scale ?? 1);
 
     if (item.rotation) {
-      obj.rotation.set(
+      root.rotation.set(
         item.rotation.x ?? 0,
         item.rotation.y ?? 0,
         item.rotation.z ?? 0
       );
     }
     if (item.position) {
-      obj.position.set(
+      root.position.set(
         item.position.x ?? 0,
         item.position.y ?? 0,
         item.position.z ?? 0
       );
     }
 
-    obj.visible = false;
-    parent.add(obj);
-    models.push(obj);
+    root.visible = false;
+    parent.add(root);
+
+    entries.push({
+      root,
+      animations: gltf.animations ?? [],
+      url: item.url,
+    });
   }
 
-  return models;
+  return entries;
 }
