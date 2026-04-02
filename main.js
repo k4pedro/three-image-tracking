@@ -12,40 +12,20 @@ import { createARSessionButton } from "/src/ar/createARSessionButton.js";
 
 const items = [
   {
-    url: "/models/assets_hnk/garrafa_hnk/garrafa_hnk.glb",
+    url: "/models/assets_hnk/hnk_bottle_text_curve_animated/bottle_text_curve.glb",
     title: "Garrafa",
     desc: "Garrafa Heineken",
-    scale: 0.03,
+    scale: 0.05,
     position: { x: 0, y: 0.02, z: 0 },
   },
   {
-    url: "/models/assets_hnk/hnk_bottle_label/hnk_bottle_label_curve_text.glb",
+    url: "/models/assets_hnk/bottle_text_curve_zero/bottle_text_curve_zero.glb",
     title: "Garrafa",
     desc: "Garrafa Heineken",
-    scale: 0.03,
+    scale: 0.05,
     position: { x: 0, y: 0.02, z: 0 },
   },
-  {
-    url: "/models/assets_hnk/hnk_bottle_label_zero/hnk_bottle_label_zero.glb",
-    title: "Garrafa",
-    desc: "Garrafa Heineken",
-    scale: 0.03,
-    position: { x: 0, y: 0.02, z: 0 },
-  },
-  {
-    url: "/models/assets_hnk/taca_hnk/taca_hnk.glb",
-    title: "Taça",
-    desc: "Taça Heineken",
-    scale: 0.03,
-    position: { x: 0, y: 0.02, z: 0 },
-  },
-  {
-    url: "/models/assets_hnk/lata_hnk/lata_hnk.glb",
-    title: "Lata",
-    desc: "Lata Heineken",
-    scale: 0.03,
-    position: { x: 0, y: 0.02, z: 0 },
-  },
+
 ];
 
 function waitForImage(imgEl) {
