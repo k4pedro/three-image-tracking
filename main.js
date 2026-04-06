@@ -9,6 +9,9 @@ import { loadModelsOnce } from "/src/three/loadModels.js";
 
 import { createImageAnchorTracker } from "/src/ar/trackingImageAnchor.js";
 import { createARSessionButton } from "/src/ar/createARSessionButton.js";
+import { createHelloOverlay } from "/src/ui/helloOverlay.js";
+
+const hello = createHelloOverlay();
 
 const items = [
   {
@@ -125,6 +128,8 @@ async function ensureModelsLoaded() {
 }
 
 async function init() {
+  hello.show();
+
   scene = new THREE.Scene();
 
   camera = new THREE.PerspectiveCamera(
@@ -188,6 +193,7 @@ async function init() {
   });
 
   renderer.xr.addEventListener("sessionstart", async () => {
+    hello.hide();
     tracker.reset();
     wasTrackedRecently = false;
     nav.show();
@@ -195,6 +201,7 @@ async function init() {
   });
 
   renderer.xr.addEventListener("sessionend", () => {
+    window.location.reload();
     tracker.reset();
     wasTrackedRecently = false;
     nav.hide();
