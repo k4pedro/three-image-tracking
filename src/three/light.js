@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import { HemisphereLight, ACESFilmicToneMapping, DirectionalLight, AmbientLight, PMREMGenerator  } from "three";
 import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
 
 export function createLight({
@@ -17,30 +17,30 @@ export function createLight({
 
   function addBaseLights() {
     // Tone mapping / exposure
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMapping = ACESFilmicToneMapping;
     renderer.toneMappingExposure = exposure;
 
-    const hemi = new THREE.HemisphereLight(0xffffff, 0xbfd3ff, 0.45);
+    const hemi = new HemisphereLight(0xffffff, 0xbfd3ff, 0.45);
     scene.add(hemi);
     lights.push(hemi);
 
-    const sun = new THREE.DirectionalLight(0xffffff, 12);
+    const sun = new DirectionalLight(0xffffff, 12);
     sun.position.set(4, 12, 9);
     scene.add(sun);
     lights.push(sun);
 
-    const amb = new THREE.AmbientLight(0xffffff, 0.08);
+    const amb = new AmbientLight(0xffffff, 0.08);
     scene.add(amb);
     lights.push(amb);
 
-    const fill = new THREE.DirectionalLight(0xffffff, 0.25);
+    const fill = new DirectionalLight(0xffffff, 0.25);
     fill.position.set(-2.0, 1.5, -1.5);
     scene.add(fill);
     lights.push(fill);
   }
 
   async function loadHDRI() {
-    pmrem = new THREE.PMREMGenerator(renderer);
+    pmrem = new PMREMGenerator(renderer);
     pmrem.compileEquirectangularShader();
 
     return new Promise((resolve) => {

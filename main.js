@@ -1,6 +1,14 @@
 import "./style.css";
-import * as THREE from "three";
-
+import {
+  Scene,
+  PerspectiveCamera,
+  WebGLRenderer,
+  Group,
+  Clock,
+  AnimationMixer,
+  LoopRepeat,
+  SRGBColorSpace
+} from "three";
 import { createNavAR } from "/src/ui/navAR.js";
 import { fadeInObject } from "/src/three/fade.js";
 
@@ -16,17 +24,11 @@ const hello = createHelloOverlay();
 const items = [
   {
     url: "/models/assets_hnk/hnk_bottle_text_curve_animated/bottle_text_curve.glb",
-    title: "Garrafa",
-    desc: "Garrafa Heineken",
-    scale: 0.05,
-    position: { x: 0, y: 0.02, z: 0 },
+    scale: 0.05
   },
   {
     url: "/models/assets_hnk/bottle_text_curve_zero/bottle_text_curve_zero.glb",
-    title: "Garrafa",
-    desc: "Garrafa Heineken",
     scale: 0.05,
-    position: { x: 0, y: 0.02, z: 0 },
   },
 
 ];
@@ -63,7 +65,7 @@ let actions = [];          // [AnimationAction|null]
 let activeIndex = 0;
 let modelsLoaded = false;
 
-const clock = new THREE.Clock();
+const clock = new Clock();
 
 function setActiveModel(nextIndex) {
   if (!models.length) return;
@@ -101,7 +103,7 @@ function setupAnimations() {
       continue;
     }
 
-    const mixer = new THREE.AnimationMixer(root);
+    const mixer = new AnimationMixer(root);
     mixers[i] = mixer;
 
     // Toca o primeiro clip.
@@ -109,7 +111,7 @@ function setupAnimations() {
     const clip = animations[0];
     const action = mixer.clipAction(clip);
 
-    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.setLoop(LoopRepeat, Infinity);
     action.play();
 
     actions[i] = action;
@@ -130,19 +132,19 @@ async function ensureModelsLoaded() {
 async function init() {
   hello.show();
 
-  scene = new THREE.Scene();
+  scene = new Scene();
 
-  camera = new THREE.PerspectiveCamera(
+  camera = new PerspectiveCamera(
     70,
     window.innerWidth / window.innerHeight,
     0.01,
     20
   );
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer = new WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.outputColorSpace = SRGBColorSpace;
   renderer.xr.enabled = true;
 
   (document.querySelector("#scene-container") || document.body).appendChild(
@@ -158,7 +160,7 @@ async function init() {
   });
   await lighting.init();
 
-  hiroAnchor = new THREE.Group();
+  hiroAnchor = new Group();
   hiroAnchor.matrixAutoUpdate = false;
   hiroAnchor.visible = false;
   scene.add(hiroAnchor);
